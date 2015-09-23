@@ -1,20 +1,22 @@
 #include <SPI.h>
 #include <Ethernet.h>
 
-int led = 13;
+int pins[] = { 3, 5, 6, 9 };
+const int pincount = 4;
+bool pinstates[10]; // initialize all states to off
+unsigned long ontimes[10]; // keep track of the last time each pin was turned on
+int durations[10]; // the on duration last set for each pin
 
-// Enter a MAC address and IP address for your controller below.
-// The IP address will be dependent on your local network:
+// MAC address and IP address for the controller below
 byte mac[] = {
-  0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED
+  0x90, 0xA2, 0xDA, 0x0D, 0x18, 0x85
 };
+String macstr = "90-A2-DA-0D-18-85";
 IPAddress ip(192, 168, 1, 177);
 IPAddress gateway(192, 168, 1, 1);
 IPAddress subnet(255, 255, 0, 0);
 
-// Initialize the Ethernet server library
-// with the IP address and port you want to use
-// (port 80 is default for HTTP):
+// Initialize the Ethernet server library (port 80 is default for HTTP)
 EthernetServer server(80);
 
 // Connect to the stream from the flag box
@@ -30,7 +32,10 @@ void setup() {
     ;
   }
 
-  pinMode(led, OUTPUT);
+  for(int pin = 0; pin < pincount; pin++)
+  {
+    pinMode(pins[pin], OUTPUT);
+  }
 
   // start the Ethernet connection and the server
   // try to use DHCP
@@ -57,67 +62,76 @@ void setup() {
   }
 }
 
-// split a string by a delimiter
-// currently not used
-char** str_split(char* a_str, const char a_delim) {
-    char** result    = 0;
-    size_t count     = 0;
-    char* tmp        = a_str;
-    char* last_comma = 0;
-    char delim[2];
-    delim[0] = a_delim;
-    delim[1] = 0;
+bool isvalidpin(unsigned int num)
+{
+  for(int pin = 0; pin < pincount; pin++)
+  {
+    if(pins[pin] == num) return 1;
+  }
 
-    // Count how many elements will be extracted
-    while (*tmp)
-    {
-        if (a_delim == *tmp)
-        {
-            count++;
-            last_comma = tmp;
-        }
-        tmp++;
-    }
-
-    // Add space for trailing token
-    count += last_comma < (a_str + strlen(a_str) - 1);
-
-    // Add space for terminating null string so caller
-    // knows where the list of returned strings ends
-    count++;
-
-    result = (char**)malloc(sizeof(char) * count);
-
-    if (result)
-    {
-        size_t idx  = 0;
-        char* token = strtok(a_str, delim);
-
-        while (token)
-        {
-            *(result + idx++) = strdup(token);
-            token = strtok(0, delim);
-        }
-        
-        *(result + idx) = 0;
-    }
-
-    return result;
+  return 0;
 }
 
-void parseUrl(String url)
+bool setPinState(unsigned int num, bool on, unsigned int dur)
 {
-  String key = "";
+  if(!isvalidpin(num)) return 0;
   
-  for(int i = 0; i < url.length(); i++)
+  // turn the specified pin number on for 
+  // the duration or off
+  if(on)
   {
-    char curr = url[i];
-
-    switch(curr)
-    {
-      
-    }
+    digitalWrite(num, HIGH);
+    pinstates[num] = (bool)1;
+    ontimes[num] = millis();
+    durations[num] = dur;
   }
+  else
+  {
+    digitalWrite(num, LOW);
+    pinstates[num] = (bool)0;
+  }
+}
+
+bool parseUrl(String url)
+{
+  if(url.startsWith("/relay?"))
+  {
+    url.remove(0, 7);
+    int len = url.length();
+    
+    char mod[len];
+
+    url.toCharArray(mod, len);
+    
+    char* spl = strtok(mod, "&");
+
+    int num = 1;
+    int on = 1;
+    int dur = 10000;
+
+    while(spl)
+    {
+      String params = String(spl);
+      int eq = params.indexOf('=');
+
+      String key = params.substring(0, eq);
+      String val = params.substring(eq + 1);
+
+      int c_val = val.toInt();
+      
+      if(key == "num") { num = c_val; }
+      if(key == "on") { on = (bool)c_val; }
+      if(key == "dur") { dur = (c_val * 1000); }
+
+      spl = strtok(0, "&");
+    }
+
+    setPinState(num, on, dur);
+
+    return 1;
+  }
+
+  return 0;
 }
 
 void acceptClient()
@@ -160,17 +174,30 @@ void acceptClient()
       }
     }
 
-    parseUrl(url);
+    //Serial.println(verb + " -- " + url);
+
+    if(parseUrl(url))
+    {
+      // valid request, send ok
+      client.println("HTTP/1.1 200 OK");
+      client.println("Content-Type: text/html");
+      client.println("Connection: close");
+      client.println();
+      client.print("<html><div id='name'>NASCAR WebRelay</div>");
+      client.print("<div id='version'>0.0</div>");
+      client.print("<div id='mac'>");
+      client.print(macstr);
+      client.print("</div>");
+      client.print("</html>");
+    }
+    else
+    {
+      // invalid request, send 404
+      client.println("HTTP/1.1 404 Not Found");
+      client.println("Connection: close");
+      client.println();
+    }
     
-    Serial.println(verb + " -- " + url);
-
-    // send a standard http response header
-    client.println("HTTP/1.1 200 OK");
-    client.println("Content-Type: text/html");
-    client.println("Connection: close");
-    client.println();
-    client.print("<html><b>NASCAR WebRelay v0.0</b></html>");
-
     // close the connection:
     client.stop();
   }
@@ -196,6 +223,30 @@ void readSocket()
   }
 }
 
+unsigned long lasttime = 0;
+void checkStaleRelays()
+{
+  for(int i = 0; i < pincount; i++)
+  {
+    int num = pins[i];
+    
+    if(pinstates[num])
+    {
+      unsigned long currms = millis();
+      unsigned long ontime = ontimes[num];
+      unsigned long et = (currms - ontime);
+
+      int dur = durations[num];
+      
+      if(et >= dur)
+      {
+        setPinState(num, 0, 0);
+        Serial.println("Relay timed-out");
+      }
+    }
+  }
+}
+
 // main loop
 void loop()
 {
@@ -205,5 +256,6 @@ void loop()
   
   acceptClient();
   readSocket();
+  checkStaleRelays();
 }
 
