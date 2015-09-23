@@ -1,8 +1,9 @@
 #include <SPI.h>
 #include <Ethernet.h>
 
-int pins[] = { 3, 5, 6, 9 };
+const int pins[] = { 3, 5, 6, 9 };
 const int pincount = 4;
+
 bool pinstates[10]; // initialize all states to off
 unsigned long ontimes[10]; // keep track of the last time each pin was turned on
 int durations[10]; // the on duration last set for each pin
@@ -11,7 +12,8 @@ int durations[10]; // the on duration last set for each pin
 byte mac[] = {
   0x90, 0xA2, 0xDA, 0x0D, 0x18, 0x85
 };
-String macstr = "90-A2-DA-0D-18-85";
+char macstr[] = "90-A2-DA-0D-18-85";
+
 IPAddress ip(192, 168, 1, 177);
 IPAddress gateway(192, 168, 1, 1);
 IPAddress subnet(255, 255, 0, 0);
@@ -22,6 +24,8 @@ EthernetServer server(80);
 // Connect to the stream from the flag box
 EthernetClient streamclient;
 IPAddress host(10, 220, 10, 13);
+char ipstr[] = "";
+
 int port = 50002;
 bool isconnected = 0;
 
@@ -48,17 +52,18 @@ void setup() {
 
   // start the server
   server.begin();
+  ip = Ethernet.localIP();
   Serial.print("server is at ");
-  Serial.println(Ethernet.localIP());
+  Serial.println(ip);
 
   return; // don't connect for now... enable for production
   // connect to stream
   if(streamclient.connect(host, port)) {
     isconnected = 1;
-    Serial.println("Stream connected");
+    Serial.println("flag box connected");
   }
   else {
-    Serial.println("Stream connection failed");
+    Serial.println("flag box connection failed");
   }
 }
 
@@ -185,6 +190,9 @@ void acceptClient()
       client.println();
       client.print("<html><div id='name'>NASCAR WebRelay</div>");
       client.print("<div id='version'>0.0</div>");
+      client.print("<div id='ip'>");
+      client.print(ip);
+      client.print("</div>");
       client.print("<div id='mac'>");
       client.print(macstr);
       client.print("</div>");
@@ -223,7 +231,6 @@ void readSocket()
   }
 }
 
-unsigned long lasttime = 0;
 void checkStaleRelays()
 {
   for(int i = 0; i < pincount; i++)
@@ -241,7 +248,7 @@ void checkStaleRelays()
       if(et >= dur)
       {
         setPinState(num, 0, 0);
-        Serial.println("Relay timed-out");
+        Serial.println("pin " + String(num) + " timed-out");
       }
     }
   }
