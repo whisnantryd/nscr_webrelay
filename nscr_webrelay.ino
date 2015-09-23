@@ -1,6 +1,8 @@
 #include <SPI.h>
 #include <Ethernet.h>
 
+int led = 13;
+
 // Enter a MAC address and IP address for your controller below.
 // The IP address will be dependent on your local network:
 byte mac[] = {
@@ -28,7 +30,10 @@ void setup() {
     ;
   }
 
+  pinMode(led, OUTPUT);
+
   // start the Ethernet connection and the server
+  // try to use DHCP
   if (Ethernet.begin(mac) == 0) {
     Serial.println("Failed to configure Ethernet using DHCP");
     
@@ -100,11 +105,28 @@ char** str_split(char* a_str, const char a_delim) {
     return result;
 }
 
-void acceptClient() {
+void parseUrl(String url)
+{
+  String key = "";
+  
+  for(int i = 0; i < url.length(); i++)
+  {
+    char curr = url[i];
+
+    switch(curr)
+    {
+      
+    }
+  }
+}
+
+void acceptClient()
+{
   // Listen for incoming clients
   EthernetClient client = server.available();
   
-  if (client && client.connected()) {
+  if (client && client.connected())
+  {
     char curr;
     
     String request = "";
@@ -114,56 +136,59 @@ void acceptClient() {
     int spc = 0;
 
     // read all data from client request
-    while (client.available()) {
+    while (client.available())
+    {
       curr = client.read();
 
       // parse only the verb ('GET') and
       // resource string ('/some/resource')
       if(spc < 3) {
-        String part = String(curr);
-        request.concat(part);
+        request.concat(curr);
 
-        if(curr == ' ') {          
-          if(++spc == 1) {
+        if(curr == ' ')
+        {          
+          if(++spc == 1)
+          {
             verb = request;
             request = "";
           }
-          else if(spc == 2) {
+          else if(spc == 2)
+          {
             url = request;
           }
         }
       }
     }
 
-    Serial.println("Verb: " + verb);
-    Serial.println("Url : " + url);
+    parseUrl(url);
+    
+    Serial.println(verb + " -- " + url);
 
     // send a standard http response header
     client.println("HTTP/1.1 200 OK");
     client.println("Content-Type: text/html");
     client.println("Connection: close");
     client.println();
-    client.print("<html>");
-    client.print("<b>");
-    client.print("NASCAR WebRelay v0.0");
-    client.print("</b>");
-    client.println("</html>");
+    client.print("<html><b>NASCAR WebRelay v0.0</b></html>");
 
     // close the connection:
     client.stop();
   }
 }
 
-void readSocket() {
+void readSocket()
+{
   // if there are incoming bytes available
   // from the server, read them and print them:
-  if (streamclient.available()) {
+  if (streamclient.available())
+  {
     char c = streamclient.read();
     Serial.print(c);
   }
 
   // if the server's disconnected, stop the client:
-  if (isconnected && !streamclient.connected()) {
+  if (isconnected && !streamclient.connected())
+  {
     isconnected = 0;
     Serial.println();
     Serial.println("disconnecting.");
@@ -172,7 +197,8 @@ void readSocket() {
 }
 
 // main loop
-void loop() {
+void loop()
+{
   // neither of these functions block
   // so we continue to loop while listening
   // for clients and reading data from stream
