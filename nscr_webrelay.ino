@@ -1,17 +1,31 @@
 #include <SPI.h>
 #include <Ethernet.h>
+#include <SoftwareSerial.h>
+#include <Adafruit_GPS.h>
 
-const int pins[] = { 3, 5, 6, 9 };
+
+// GPS settings++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+SoftwareSerial mySerial(3, 2);
+Adafruit_GPS GPS(&mySerial);
+boolean usingInterrupt = false;
+
+#define GPSECHO  true
+// --------------------------------------------------------------------------------------------
+
+
+// Pin relay settings++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+const int pins[] = { 5, 6, 7, 8, 9 };
 const int pincount = 4;
 
 bool pinstates[10]; // initialize all states to off
 unsigned long ontimes[10]; // keep track of the last time each pin was turned on
 int durations[10]; // the on duration last set for each pin
+// --------------------------------------------------------------------------------------------
 
+
+// Ethernet settings ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // MAC address and IP address for the controller below
-byte mac[] = {
-  0x90, 0xA2, 0xDA, 0x0D, 0x18, 0x85
-};
+byte mac[] = { 0x90, 0xA2, 0xDA, 0x0D, 0x18, 0x85 };
 char macstr[] = "90-A2-DA-0D-18-85";
 
 IPAddress ip(192, 168, 1, 177);
@@ -28,35 +42,53 @@ char ipstr[] = "";
 
 int port = 50002;
 bool isconnected = 0;
+// --------------------------------------------------------------------------------------------
 
-void setup() {
-  // Open serial communications and wait for port to open
-  Serial.begin(9600);
-  while (!Serial) {
-    ;
-  }
+void setupGPS() {
+  // initialize gps
+  // 9600 NMEA is the default baud rate for MTK - some use 4800
+  GPS.begin(9600);
 
+  // set the verbosity
+  GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA);
+  //GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCONLY);
+  //GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_ALLDATA);
+
+  // set the refresh rtate
+  GPS.sendCommand(PMTK_SET_NMEA_UPDATE_100_MILLIHERTZ);
+  GPS.sendCommand(PMTK_API_SET_FIX_CTL_100_MILLIHERTZ);
+
+  GPS.sendCommand(PGCMD_ANTENNA);
+
+  delay(1000);
+}
+
+void setupGpio() {
+  // initialize pins for output
   for(int pin = 0; pin < pincount; pin++)
   {
     pinMode(pins[pin], OUTPUT);
   }
+}
 
+void setupEthernet() {
   // start the Ethernet connection and the server
   // try to use DHCP
-  if (Ethernet.begin(mac) == 0) {
+  if (Ethernet.begin(mac) == 0)
+  {
     Serial.println("Failed to configure Ethernet using DHCP");
-    
     // initialize the ethernet device not using DHCP:
     Ethernet.begin(mac, ip, gateway, subnet);
   }
-
+  
   // start the server
   server.begin();
   ip = Ethernet.localIP();
   Serial.print("server is at ");
   Serial.println(ip);
+}
 
-  return; // don't connect for now... enable for production
+void setupFlagBoxConnection() {
   // connect to stream
   if(streamclient.connect(host, port)) {
     isconnected = 1;
@@ -67,8 +99,21 @@ void setup() {
   }
 }
 
-bool isvalidpin(unsigned int num)
-{
+void setup() {
+  // Open serial communications and wait for port to open
+  Serial.begin(115200);
+  while (!Serial) ;
+
+  Serial.print("Arduino value: ");
+  Serial.println(ARDUINO);
+
+  setupGPS();
+  setupGpio();
+  //setupEthernet();
+  //setupFlagBoxConnection();// don't connect for now... enable for production  
+}
+
+bool isvalidpin(unsigned int num) {
   for(int pin = 0; pin < pincount; pin++)
   {
     if(pins[pin] == num) return 1;
@@ -77,8 +122,7 @@ bool isvalidpin(unsigned int num)
   return 0;
 }
 
-bool setPinState(unsigned int num, bool on, unsigned int dur)
-{
+bool setPinState(unsigned int num, bool on, unsigned int dur) {
   if(!isvalidpin(num)) return 0;
   
   // turn the specified pin number on for 
@@ -97,8 +141,7 @@ bool setPinState(unsigned int num, bool on, unsigned int dur)
   }
 }
 
-bool parseUrl(String url)
-{
+bool parseUrl(String url) {
   if(url.startsWith("/relay?"))
   {
     url.remove(0, 7);
@@ -139,8 +182,7 @@ bool parseUrl(String url)
   return 0;
 }
 
-void acceptClient()
-{
+void acceptClient() {
   // Listen for incoming clients
   EthernetClient client = server.available();
   
@@ -211,8 +253,7 @@ void acceptClient()
   }
 }
 
-void readSocket()
-{
+void readSocket() {
   // if there are incoming bytes available
   // from the server, read them and print them:
   if (streamclient.available())
@@ -231,8 +272,7 @@ void readSocket()
   }
 }
 
-void checkStaleRelays()
-{
+void checkStaleRelays() {
   for(int i = 0; i < pincount; i++)
   {
     int num = pins[i];
@@ -254,9 +294,35 @@ void checkStaleRelays()
   }
 }
 
+void readGps() {
+  GPS.read();
+  
+  if (GPS.newNMEAreceived())
+  {
+    char* last = GPS.lastNMEA();
+
+    Serial.println(last);
+    
+    if (GPS.parse(last))
+    {
+      Serial.print("Location: ");
+      Serial.print(GPS.latitude, 4);
+      Serial.print(GPS.lat);
+      Serial.print(", "); 
+      Serial.print(GPS.longitude, 4);
+      Serial.println(GPS.lon);
+      Serial.print("Altitude: ");
+      Serial.println(GPS.altitude);
+    }
+  }
+}
+
 // main loop
 void loop()
 {
+  readGps();
+  return;
+  
   // neither of these functions block
   // so we continue to loop while listening
   // for clients and reading data from stream
